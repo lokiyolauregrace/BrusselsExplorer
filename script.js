@@ -1,132 +1,57 @@
-"use strict";
-
-/* =========================================================
-   BRUSSELSEXPLORER
-   Dynamic Web - EHB
-   ========================================================= */
-
-
-/* =========================================================
-   API
-   ========================================================= */
-
 const API_URL =
     "https://opendata.brussels.be/api/explore/v2.1/catalog/datasets/lieux_culturels_touristiques_evenementiels_visitbrussels_vbx/records?limit=1000";
 
-
-/* =========================================================
-   LOCAL STORAGE
-   ========================================================= */
-
-const STORAGE = {
-    favorites: "brusselsExplorerFavorites",
-    preferences: "brusselsExplorerPreferences",
-    theme: "brusselsExplorerTheme",
-    language: "brusselsExplorerLanguage",
-    location: "brusselsExplorerLocation"
-};
-
-
-/* =========================================================
-   DATA
-   ========================================================= */
+const FALLBACK_API_URL =
+    "https://opendata.brussels.be/api/explore/v2.1/catalog/datasets/bruxelles_musees/records?limit=100";
 
 let places = [];
 let filteredPlaces = [];
+let favorites = JSON.parse(
+    localStorage.getItem("brusselsExplorerFavorites") || "[]"
+);
 
-let favorites = [];
+let currentLanguage =
+    localStorage.getItem("brusselsExplorerLanguage") || "nl";
 
-try {
-    favorites = JSON.parse(
-        localStorage.getItem(STORAGE.favorites) || "[]"
-    );
-
-    if (!Array.isArray(favorites)) {
-        favorites = [];
-    }
-} catch {
-    favorites = [];
-}
-
-let userLocation = null;
-
-try {
-    userLocation = JSON.parse(
-        localStorage.getItem(STORAGE.location) || "null"
-    );
-} catch {
-    userLocation = null;
-}
-
+let currentView = "cards";
 let map = null;
 let markersLayer = null;
 
 
-/* =========================================================
-   HTML ELEMENTEN
-   ========================================================= */
+/* =========================
+   ELEMENTEN
+========================= */
 
-const loading =
-    document.getElementById("loading");
-
-const errorMessage =
-    document.getElementById("error-message");
-
-const placesContainer =
-    document.getElementById("places-container");
-
-const tableContainer =
-    document.getElementById("table-container");
-
-const resultCount =
-    document.getElementById("result-count");
-
-const favoriteCount =
-    document.getElementById("favorite-count");
-
-const favoritesContainer =
-    document.getElementById("favorites-container");
-
-const favoritesEmpty =
-    document.getElementById("favorites-empty");
-
-const searchInput =
-    document.getElementById("search-input");
-
-const categoryFilter =
-    document.getElementById("category-filter");
-
-const locationFilter =
-    document.getElementById("location-filter");
-
-const sortSelect =
-    document.getElementById("sort-select");
-
-const resetFilters =
-    document.getElementById("reset-filters");
-
-const languageSelect =
-    document.getElementById("language-select");
-
-const themeButton =
-    document.getElementById("theme-button");
-
-const nearbyButton =
-    document.getElementById("nearby-button");
-
-const themeSelect =
-    document.getElementById("theme-select");
-
-const locationPreference =
-    document.getElementById("location-preference");
-
-const preferencesForm =
-    document.getElementById("preferences-form");
+const $ = (id) => document.getElementById(id);
 
 
-/* =========================================================
+/* =========================
+   VEILIG HTML
+========================= */
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+function firstValue(...values) {
+    return values.find(
+        (value) =>
+            value !== undefined &&
+            value !== null &&
+            String(value).trim() !== ""
+    ) ?? "";
+}
+
+
+/* =========================
    VERTALINGEN
-   ========================================================= */
+========================= */
 
 const translations = {
 
@@ -135,1026 +60,784 @@ const translations = {
         map: "Kaart",
         favorites: "Favorieten",
 
-        heroTitle: "Ontdek jouw volgende Brusselse plek.",
-        heroText:
-            "Van musea en galerijen tot leuke plekken en toeristische hotspots. Zoek, filter, bewaar en plan je volgende ontdekking.",
+        country: "BRUSSEL • BELGIË",
 
-        start: "Start ontdekken",
-        nearby: "◎ Vind dichtbij mij",
+        heroTitle: "Ontdek leuke plekken",
+        heroSpan: "in Brussel.",
 
-        discoverTitle:
-            "Leuke plekken, op één plek.",
+        heroCopy:
+            "Weet je niet wat je vandaag kan doen? Zoek een leuke plek, bekijk waar ze ligt en bewaar je favorieten.",
+
+        discoverBtn: "Ontdek plekken",
+        nearby: "◎ In mijn buurt",
+
+        discoverLabel: "ONTDEKKEN",
+        discoverTitle: "Wat wil je vandaag ontdekken?",
 
         search: "Zoeken",
-        searchPlaceholder: "Zoek een plek...",
+        searchPlaceholder: "Typ bijvoorbeeld een naam...",
+
         type: "Type",
+        allTypes: "Alle types",
+
         location: "Locatie",
+        allLocations: "Alle locaties",
+
         sort: "Sorteren",
+        az: "Naam A-Z",
+        za: "Naam Z-A",
+
         reset: "Reset",
 
         cards: "▦ Kaarten",
         table: "☷ Tabel",
 
-        mapTitle: "Waar is het precies?",
-        mapTip:
-            "Klik op een marker voor meer info.",
+        loading: "Even geduld, de plekken worden geladen...",
 
-        favoritesTitle:
-            "Mijn favorieten ♡",
+        mapLabel: "KAART",
+        mapTitle: "Bekijk de plekken op de kaart",
+        mapTip: "Klik op een marker om meer informatie te bekijken.",
 
-        emptyFavorites:
-            "Je lijstje is nog leeg",
+        favLabel: "FAVORIETEN",
+        favTitle: "Mijn opgeslagen plekken ♡",
 
-        emptyFavoritesText:
-            "Bewaar een paar leuke plekken en ze verschijnen hier.",
+        noFav: "Je hebt nog geen favorieten.",
 
-        preferenceTitle:
-            "Maak BrusselsExplorer een beetje van jou.",
+        favText:
+            "Klik op het hartje bij een plek om die hier te bewaren.",
 
-        preferenceText:
-            "Bewaar je voorkeuren zodat de website de volgende keer meteen goed staat.",
+        toPlaces: "Naar de plekken",
 
+        prefLabel: "VOORKEUREN",
+        prefTitle: "Stel de website in zoals jij hem wil.",
+
+        prefText:
+            "Je voorkeuren worden in je browser bewaard zodat ze niet telkens opnieuw ingesteld moeten worden.",
+
+        theme: "Thema",
         light: "Licht",
         pink: "Roze",
         dark: "Donker",
 
-        locationUse:
-            "Locatie gebruiken",
+        locationUse: "Locatie gebruiken",
 
-        savePreference:
-            "Voorkeuren bewaren ♡",
+        savePrefs: "Voorkeuren bewaren ♡",
+        saved: "Voorkeuren opgeslagen ✓",
 
-        allTypes: "Alle types",
-        allLocations: "Alle locaties",
+        noResults: "Geen plekken gevonden.",
 
-        place: "plaats",
-        places: "plaatsen",
+        details: "Bekijk locatie",
+        website: "Website",
+        address: "Adres",
 
-        details: "Bekijk details →",
-
-        noResults:
-            "Geen plaatsen gevonden.",
-
-        apiError:
-            "De plaatsen konden niet geladen worden. Controleer je internetverbinding.",
-
-        locationSaved:
-            "Locatie gevonden ♡",
-
-        locationError:
-            "Je locatie kon niet worden gebruikt.",
-
-        favoriteAdded:
-            "Toegevoegd aan je favorieten ♡",
-
-        favoriteRemoved:
-            "Verwijderd uit je favorieten.",
-
-        preferencesSaved:
-            "Je voorkeuren zijn opgeslagen ♡"
+        results: "plaatsen gevonden"
     },
+
 
     fr: {
         discover: "Découvrir",
         map: "Carte",
         favorites: "Favoris",
 
-        heroTitle:
-            "Découvrez votre prochain endroit à Bruxelles.",
+        country: "BRUXELLES • BELGIQUE",
 
-        heroText:
-            "Des musées et galeries aux endroits sympas et lieux touristiques. Recherchez, filtrez, sauvegardez et planifiez votre prochaine découverte.",
+        heroTitle: "Découvrez de beaux endroits",
+        heroSpan: "à Bruxelles.",
 
-        start: "Commencer",
+        heroCopy:
+            "Vous ne savez pas quoi faire aujourd'hui ? Trouvez un endroit, voyez où il se trouve et gardez vos favoris.",
+
+        discoverBtn: "Découvrir",
         nearby: "◎ Près de moi",
 
-        discoverTitle:
-            "Les endroits sympas, au même endroit.",
+        discoverLabel: "DÉCOUVRIR",
+        discoverTitle: "Que voulez-vous découvrir aujourd'hui ?",
 
         search: "Rechercher",
-        searchPlaceholder: "Rechercher un endroit...",
+        searchPlaceholder: "Recherchez un endroit...",
+
         type: "Type",
+        allTypes: "Tous les types",
+
         location: "Lieu",
+        allLocations: "Tous les lieux",
+
         sort: "Trier",
+        az: "Nom A-Z",
+        za: "Nom Z-A",
+
         reset: "Réinitialiser",
 
         cards: "▦ Cartes",
         table: "☷ Tableau",
 
-        mapTitle:
-            "Où est-ce exactement ?",
+        loading: "Chargement des endroits...",
 
-        mapTip:
-            "Cliquez sur un marqueur pour plus d'informations.",
+        mapLabel: "CARTE",
+        mapTitle: "Voir les endroits sur la carte",
+        mapTip: "Cliquez sur un marqueur pour plus d'informations.",
 
-        favoritesTitle:
-            "Mes favoris ♡",
+        favLabel: "FAVORIS",
+        favTitle: "Mes endroits favoris ♡",
 
-        emptyFavorites:
-            "Votre liste est encore vide",
+        noFav: "Vous n'avez pas encore de favoris.",
 
-        emptyFavoritesText:
-            "Sauvegardez quelques endroits et ils apparaîtront ici.",
+        favText:
+            "Cliquez sur le cœur d'un endroit pour le sauvegarder.",
 
-        preferenceTitle:
-            "Faites de BrusselsExplorer votre espace.",
+        toPlaces: "Voir les endroits",
 
-        preferenceText:
-            "Sauvegardez vos préférences pour retrouver votre configuration.",
+        prefLabel: "PRÉFÉRENCES",
+        prefTitle: "Personnalisez votre site.",
 
+        prefText:
+            "Vos préférences sont enregistrées dans votre navigateur.",
+
+        theme: "Thème",
         light: "Clair",
         pink: "Rose",
         dark: "Sombre",
 
-        locationUse:
-            "Utiliser ma position",
+        locationUse: "Utiliser ma localisation",
 
-        savePreference:
-            "Enregistrer les préférences ♡",
+        savePrefs: "Enregistrer ♡",
+        saved: "Préférences enregistrées ✓",
 
-        allTypes: "Tous les types",
-        allLocations: "Tous les lieux",
+        noResults: "Aucun endroit trouvé.",
 
-        place: "lieu",
-        places: "lieux",
+        details: "Voir la localisation",
+        website: "Site web",
+        address: "Adresse",
 
-        details: "Voir les détails →",
-
-        noResults:
-            "Aucun endroit trouvé.",
-
-        apiError:
-            "Les endroits n'ont pas pu être chargés. Vérifiez votre connexion.",
-
-        locationSaved:
-            "Position trouvée ♡",
-
-        locationError:
-            "Votre position n'a pas pu être utilisée.",
-
-        favoriteAdded:
-            "Ajouté à vos favoris ♡",
-
-        favoriteRemoved:
-            "Supprimé de vos favoris.",
-
-        preferencesSaved:
-            "Vos préférences ont été enregistrées ♡"
+        results: "endroits trouvés"
     },
+
 
     en: {
         discover: "Discover",
         map: "Map",
         favorites: "Favorites",
 
-        heroTitle:
-            "Discover your next Brussels spot.",
+        country: "BRUSSELS • BELGIUM",
 
-        heroText:
-            "From museums and galleries to nice places and tourist hotspots. Search, filter, save and plan your next discovery.",
+        heroTitle: "Discover great places",
+        heroSpan: "in Brussels.",
 
-        start: "Start exploring",
+        heroCopy:
+            "Not sure what to do today? Find a place, see where it is and save your favorites.",
+
+        discoverBtn: "Discover places",
         nearby: "◎ Near me",
 
-        discoverTitle:
-            "Nice places, all in one place.",
+        discoverLabel: "DISCOVER",
+        discoverTitle: "What would you like to discover today?",
 
         search: "Search",
         searchPlaceholder: "Search for a place...",
+
         type: "Type",
+        allTypes: "All types",
+
         location: "Location",
+        allLocations: "All locations",
+
         sort: "Sort",
+        az: "Name A-Z",
+        za: "Name Z-A",
+
         reset: "Reset",
 
         cards: "▦ Cards",
         table: "☷ Table",
 
-        mapTitle:
-            "Where exactly is it?",
+        loading: "Loading places...",
 
-        mapTip:
-            "Click on a marker for more information.",
+        mapLabel: "MAP",
+        mapTitle: "See the places on the map",
+        mapTip: "Click a marker for more information.",
 
-        favoritesTitle:
-            "My favorites ♡",
+        favLabel: "FAVORITES",
+        favTitle: "My saved places ♡",
 
-        emptyFavorites:
-            "Your list is still empty",
+        noFav: "You have no favorites yet.",
 
-        emptyFavoritesText:
-            "Save a few nice places and they will appear here.",
+        favText:
+            "Click the heart on a place to save it.",
 
-        preferenceTitle:
-            "Make BrusselsExplorer your own.",
+        toPlaces: "View places",
 
-        preferenceText:
-            "Save your preferences so the website remembers your settings.",
+        prefLabel: "PREFERENCES",
+        prefTitle: "Make the website yours.",
 
+        prefText:
+            "Your preferences are saved in your browser.",
+
+        theme: "Theme",
         light: "Light",
         pink: "Pink",
         dark: "Dark",
 
-        locationUse:
-            "Use my location",
+        locationUse: "Use my location",
 
-        savePreference:
-            "Save preferences ♡",
+        savePrefs: "Save preferences ♡",
+        saved: "Preferences saved ✓",
 
-        allTypes: "All types",
-        allLocations: "All locations",
+        noResults: "No places found.",
 
-        place: "place",
-        places: "places",
+        details: "View location",
+        website: "Website",
+        address: "Address",
 
-        details: "View details →",
-
-        noResults:
-            "No places found.",
-
-        apiError:
-            "The places could not be loaded. Check your internet connection.",
-
-        locationSaved:
-            "Location found ♡",
-
-        locationError:
-            "Your location could not be used.",
-
-        favoriteAdded:
-            "Added to your favorites ♡",
-
-        favoriteRemoved:
-            "Removed from your favorites.",
-
-        preferencesSaved:
-            "Your preferences have been saved ♡"
+        results: "places found"
     }
 };
 
 
-/* =========================================================
-   TAAL
-   ========================================================= */
+/* =========================
+   API DATA NORMALISEREN
+========================= */
 
-function currentLanguage() {
-    return (
-        localStorage.getItem(STORAGE.language) ||
-        "nl"
-    );
-}
+function normalize(record, index) {
 
+    const f = record.fields || record;
 
-function t(key) {
-    const language = currentLanguage();
+    let lat = null;
+    let lon = null;
 
-    return (
-        translations[language]?.[key] ||
-        translations.nl[key] ||
-        key
-    );
-}
+    /*
+       Visit.Brussels dataset:
+       add_geo_point_2 = [latitude, longitude]
+    */
 
+    if (Array.isArray(f.add_geo_point_2)) {
 
-function changeLanguage(language) {
+        lat = Number(f.add_geo_point_2[0]);
+        lon = Number(f.add_geo_point_2[1]);
 
-    if (!translations[language]) {
-        return;
     }
 
-    localStorage.setItem(
-        STORAGE.language,
-        language
+    /*
+       Fallback museum dataset
+    */
+
+    if (
+        (!Number.isFinite(lat) || !Number.isFinite(lon)) &&
+        Array.isArray(f.coordonnees_geographiques)
+    ) {
+
+        lat = Number(f.coordonnees_geographiques[0]);
+        lon = Number(f.coordonnees_geographiques[1]);
+
+    }
+
+    const name = firstValue(
+        f.translations_nl_name,
+        f.translations_fr_name,
+        f.translations_en_name,
+        f.naam,
+        f.nom,
+        f.name,
+        "Onbekende plek"
     );
+
+    const nameNl = firstValue(
+        f.translations_nl_name,
+        f.naam,
+        name
+    );
+
+    const nameFr = firstValue(
+        f.translations_fr_name,
+        f.nom,
+        name
+    );
+
+    const nameEn = firstValue(
+        f.translations_en_name,
+        f.name,
+        name
+    );
+
+    const address = firstValue(
+        f.translations_nl_address_line1,
+        f.translations_fr_address_line1,
+        f.adres,
+        f.adresse,
+        f.address,
+        "Adres niet beschikbaar"
+    );
+
+    const postcode = firstValue(
+        f.translations_fr_address_zip,
+        f.translations_nl_address_zip,
+        f.postcode,
+        f.code_postal,
+        ""
+    );
+
+    const municipality = firstValue(
+        f.add_municipality_nl,
+        f.add_municipality_fr,
+        f.gemeente,
+        f.commune,
+        "Brussel"
+    );
+
+    /*
+       We combineren gemeente + postcode.
+       Hierdoor heeft de locatie-filter echt meerdere keuzes.
+    */
+
+    const location = postcode
+        ? `${municipality} ${postcode}`
+        : municipality;
+
+    const category = firstValue(
+        f.visit_category_nl_multi,
+        f.visit_category_fr_multi,
+        f.visit_category_en_multi,
+        f.type,
+        "Bezienswaardigheid"
+    );
+
+    const categoryFr = firstValue(
+        f.visit_category_fr_multi,
+        f.type,
+        category
+    );
+
+    const categoryEn = firstValue(
+        f.visit_category_en_multi,
+        f.type,
+        category
+    );
+
+    const website = firstValue(
+        f.translations_fr_website,
+        f.translations_nl_website,
+        f.translations_en_website,
+        f.weblink,
+        f.website,
+        ""
+    );
+
+    const googleMaps = firstValue(
+        f.google_maps,
+        ""
+    );
+
+    return {
+        id: String(
+            firstValue(
+                record.recordid,
+                f.id,
+                index
+            )
+        ),
+
+        name,
+
+        nameNl,
+        nameFr,
+        nameEn,
+
+        address,
+        postcode,
+
+        location,
+
+        category,
+        categoryFr,
+        categoryEn,
+
+        website,
+        googleMaps,
+
+        lat,
+        lon
+    };
+}
+
+
+/* =========================
+   API OPHALEN
+========================= */
+
+async function getApiData(url) {
+
+    const response = await fetch(url, {
+        method: "GET",
+        headers: {
+            Accept: "application/json"
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(
+            `API error: ${response.status}`
+        );
+    }
+
+    const data = await response.json();
+
+    if (!Array.isArray(data.results)) {
+        throw new Error(
+            "De API heeft geen results teruggestuurd."
+        );
+    }
+
+    return data.results;
+}
+
+
+async function fetchPlaces() {
+
+    try {
+
+        console.log("BrusselsExplorer: API laden...");
+
+        const data = await getApiData(API_URL);
+
+        console.log(
+            "Visit.Brussels API:",
+            data.length,
+            "records"
+        );
+
+        const normalized = data
+            .map(normalize)
+            .filter(
+                place =>
+                    place.name &&
+                    place.name !== "Onbekende plek"
+            );
+
+        if (!normalized.length) {
+            throw new Error(
+                "De API gaf geen bruikbare plaatsen."
+            );
+        }
+
+        return normalized;
+
+    } catch (error) {
+
+        console.warn(
+            "Hoofd-API mislukt. Fallback API wordt geprobeerd.",
+            error
+        );
+
+        try {
+
+            const fallbackData =
+                await getApiData(FALLBACK_API_URL);
+
+            console.log(
+                "Fallback museum API:",
+                fallbackData.length,
+                "records"
+            );
+
+            return fallbackData
+                .map(normalize)
+                .filter(
+                    place =>
+                        place.name &&
+                        place.name !== "Onbekende plek"
+                );
+
+        } catch (fallbackError) {
+
+            console.error(
+                "Beide API's mislukt:",
+                fallbackError
+            );
+
+            throw fallbackError;
+        }
+    }
+}
+
+
+/* =========================
+   TAAL
+========================= */
+
+function getPlaceName(place) {
+
+    if (currentLanguage === "fr") {
+        return place.nameFr || place.name;
+    }
+
+    if (currentLanguage === "en") {
+        return place.nameEn || place.name;
+    }
+
+    return place.nameNl || place.name;
+}
+
+
+function getPlaceCategory(place) {
+
+    if (currentLanguage === "fr") {
+        return place.categoryFr || place.category;
+    }
+
+    if (currentLanguage === "en") {
+        return place.categoryEn || place.category;
+    }
+
+    return place.category || "Bezienswaardigheid";
+}
+
+
+function applyLanguage() {
+
+    const t = translations[currentLanguage];
 
     document.documentElement.lang =
-        language;
+        currentLanguage;
 
-    if (languageSelect) {
-        languageSelect.value = language;
-    }
-
-    updateInterfaceText();
-
-    if (places.length > 0) {
-        fillFilterOptions();
-        applyFilters();
-        renderFavorites();
-    }
-}
+    $("language-select").value =
+        currentLanguage;
 
 
-function updateInterfaceText() {
+    /* NAV */
 
-    const discoverLink =
-        document.querySelector(
-            'a[href="#places"]'
+    const nav =
+        document.querySelectorAll(
+            ".navigation a"
         );
 
-    const mapLink =
-        document.querySelector(
-            'a[href="#map-section"]'
-        );
+    if (nav[0])
+        nav[0].textContent = t.discover;
 
-    const favoritesLink =
-        document.querySelector(
-            'a[href="#favorites"]'
-        );
+    if (nav[1])
+        nav[1].textContent = t.map;
 
-    if (discoverLink) {
-        discoverLink.textContent =
-            t("discover");
-    }
+    if (nav[2]) {
 
-    if (mapLink) {
-        mapLink.textContent =
-            t("map");
-    }
-
-    if (favoritesLink) {
-        favoritesLink.innerHTML =
-            `${t("favorites")}
+        nav[2].innerHTML =
+            `${t.favorites}
              <span id="favorite-count">
-                ${favorites.length}
+             ${favorites.length}
              </span>`;
     }
+
+
+    /* HERO */
+
+    const heroSmall =
+        document.querySelector(".hero .small-title");
+
+    if (heroSmall)
+        heroSmall.textContent = t.country;
+
 
     const heroTitle =
         document.querySelector(".hero h1");
 
     if (heroTitle) {
-        heroTitle.innerHTML =
-            t("heroTitle");
+
+        heroTitle.childNodes[0].textContent =
+            `${t.heroTitle} `;
+
+        heroTitle.querySelector("span")
+            .textContent = t.heroSpan;
     }
 
-    const heroCopy =
-        document.querySelector(".hero-copy");
 
-    if (heroCopy) {
-        heroCopy.textContent =
-            t("heroText");
-    }
+    document.querySelector(".hero-copy")
+        .textContent = t.heroCopy;
 
-    const heroButtons =
+
+    $("nearby-button").textContent =
+        t.nearby;
+
+
+    const heroButton =
+        document.querySelector(
+            ".hero .primary-button"
+        );
+
+    if (heroButton)
+        heroButton.textContent =
+            t.discoverBtn;
+
+
+    /* SECTION TITELS */
+
+    const smallTitles =
         document.querySelectorAll(
-            ".hero-buttons .button"
+            ".section .small-title"
         );
 
-    if (heroButtons[0]) {
-        heroButtons[0].textContent =
-            t("start");
-    }
+    if (smallTitles[0])
+        smallTitles[0].textContent =
+            t.discoverLabel;
 
-    if (heroButtons[1]) {
-        heroButtons[1].textContent =
-            t("nearby");
-    }
+    if (smallTitles[1])
+        smallTitles[1].textContent =
+            t.mapLabel;
 
-    const placesTitle =
-        document.querySelector(
-            "#places h2"
+    if (smallTitles[2])
+        smallTitles[2].textContent =
+            t.favLabel;
+
+    if (smallTitles[3])
+        smallTitles[3].textContent =
+            t.prefLabel;
+
+
+    $("places")
+        ?.querySelector("h2")
+        ?.replaceChildren(
+            document.createTextNode(
+                t.discoverTitle
+            )
         );
 
-    if (placesTitle) {
-        placesTitle.textContent =
-            t("discoverTitle");
-    }
 
-    const searchLabel =
-        document.querySelector(
-            'label[for="search-input"]'
+    $("map-section")
+        ?.querySelector("h2")
+        ?.replaceChildren(
+            document.createTextNode(
+                t.mapTitle
+            )
         );
 
-    if (searchLabel) {
-        searchLabel.textContent =
-            t("search");
-    }
 
-    if (searchInput) {
-        searchInput.placeholder =
-            t("searchPlaceholder");
-    }
+    document.querySelector(".map-tip")
+        .textContent = t.mapTip;
 
-    const categoryLabel =
-        document.querySelector(
-            'label[for="category-filter"]'
+
+    $("favorites")
+        ?.querySelector("h2")
+        ?.replaceChildren(
+            document.createTextNode(
+                t.favTitle
+            )
         );
 
-    if (categoryLabel) {
-        categoryLabel.textContent =
-            t("type");
-    }
 
-    const locationLabel =
-        document.querySelector(
-            'label[for="location-filter"]'
+    $("favorites-empty")
+        ?.querySelector("h3")
+        ?.replaceChildren(
+            document.createTextNode(
+                t.noFav
+            )
         );
 
-    if (locationLabel) {
-        locationLabel.textContent =
-            t("location");
-    }
 
-    const sortLabel =
-        document.querySelector(
-            'label[for="sort-select"]'
+    $("favorites-empty")
+        ?.querySelector("p")
+        ?.replaceChildren(
+            document.createTextNode(
+                t.favText
+            )
         );
 
-    if (sortLabel) {
-        sortLabel.textContent =
-            t("sort");
-    }
 
-    if (resetFilters) {
-        resetFilters.textContent =
-            t("reset");
-    }
-
-    const viewButtons =
-        document.querySelectorAll(
-            ".view-button"
+    $("favorites-empty")
+        ?.querySelector("a")
+        ?.replaceChildren(
+            document.createTextNode(
+                t.toPlaces
+            )
         );
 
-    if (viewButtons[0]) {
-        viewButtons[0].textContent =
-            t("cards");
-    }
 
-    if (viewButtons[1]) {
-        viewButtons[1].textContent =
-            t("table");
-    }
+    /* FILTERS */
 
-    const mapTitle =
-        document.querySelector(
-            "#map-section h2"
-        );
+    document.querySelector(
+        'label[for="search-input"]'
+    ).textContent = t.search;
 
-    if (mapTitle) {
-        mapTitle.textContent =
-            t("mapTitle");
-    }
 
-    const mapTip =
-        document.querySelector(
-            ".map-tip"
-        );
+    $("search-input").placeholder =
+        t.searchPlaceholder;
 
-    if (mapTip) {
-        mapTip.textContent =
-            t("mapTip");
-    }
 
-    const favoritesTitle =
-        document.querySelector(
-            "#favorites h2"
-        );
+    document.querySelector(
+        'label[for="category-filter"]'
+    ).textContent = t.type;
 
-    if (favoritesTitle) {
-        favoritesTitle.textContent =
-            t("favoritesTitle");
-    }
 
-    const emptyTitle =
-        document.querySelector(
-            "#favorites-empty h3"
-        );
+    document.querySelector(
+        'label[for="location-filter"]'
+    ).textContent = t.location;
 
-    if (emptyTitle) {
-        emptyTitle.textContent =
-            t("emptyFavorites");
-    }
 
-    const emptyText =
-        document.querySelector(
-            "#favorites-empty p"
-        );
+    document.querySelector(
+        'label[for="sort-select"]'
+    ).textContent = t.sort;
 
-    if (emptyText) {
-        emptyText.textContent =
-            t("emptyFavoritesText");
-    }
 
-    const preferenceTitle =
-        document.querySelector(
-            ".preferences-section h2"
-        );
+    $("reset-filters").textContent =
+        t.reset;
 
-    if (preferenceTitle) {
-        preferenceTitle.textContent =
-            t("preferenceTitle");
-    }
 
-    const preferenceText =
-        document.querySelector(
-            ".preferences-box > div > p:not(.small-title)"
-        );
+    /* VIEW */
 
-    if (preferenceText) {
-        preferenceText.textContent =
-            t("preferenceText");
-    }
+    document.querySelector(
+        '[data-view="cards"]'
+    ).textContent = t.cards;
 
-    const locationLabelPreference =
-        document.querySelector(
-            'label[for="location-preference"]'
-        );
 
-    if (locationLabelPreference) {
-        locationLabelPreference.textContent =
-            t("locationUse");
-    }
+    document.querySelector(
+        '[data-view="table"]'
+    ).textContent = t.table;
 
-    const saveButton =
-        document.querySelector(
-            '#preferences-form button[type="submit"]'
-        );
 
-    if (saveButton) {
-        saveButton.textContent =
-            t("savePreference");
-    }
+    /* PREFERENCES */
 
-    if (themeSelect) {
+    document.querySelector(
+        'label[for="theme-select"]'
+    ).textContent = t.theme;
 
-        const options =
-            themeSelect.querySelectorAll(
-                "option"
-            );
 
-        options.forEach(option => {
+    document.querySelector(
+        'label[for="location-preference"]'
+    ).textContent = t.locationUse;
 
-            if (option.value === "light") {
-                option.textContent =
-                    t("light");
-            }
 
-            if (option.value === "pink") {
-                option.textContent =
-                    t("pink");
-            }
+    const themeOptions =
+        $("theme-select").options;
 
-            if (option.value === "dark") {
-                option.textContent =
-                    t("dark");
-            }
+    themeOptions[0].textContent = t.light;
+    themeOptions[1].textContent = t.pink;
+    themeOptions[2].textContent = t.dark;
 
-        });
-    }
+
+    render();
 }
 
 
-/* =========================================================
-   HELPERS
-   ========================================================= */
-
-function escapeHtml(value) {
-
-    return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
-
-function cleanText(value) {
-
-    if (
-        value === null ||
-        value === undefined
-    ) {
-        return "-";
-    }
-
-    if (Array.isArray(value)) {
-
-        return value
-            .filter(Boolean)
-            .map(item => String(item).trim())
-            .filter(Boolean)
-            .join(", ") || "-";
-    }
-
-    if (typeof value === "object") {
-        return "-";
-    }
-
-    return String(value)
-        .replace(/<[^>]*>/g, "")
-        .trim() || "-";
-}
-
-
-function getField(record, ...names) {
-
-    for (const name of names) {
-
-        if (
-            record &&
-            record[name] !== undefined &&
-            record[name] !== null &&
-            record[name] !== ""
-        ) {
-            return record[name];
-        }
-    }
-
-    return null;
-}
-
-
-/* =========================================================
-   COÖRDINATEN
-   ========================================================= */
-
-function parseCoordinates(point) {
-
-    if (!point) {
-        return null;
-    }
-
-    if (
-        typeof point === "object" &&
-        !Array.isArray(point) &&
-        Number.isFinite(Number(point.lat)) &&
-        Number.isFinite(Number(point.lon))
-    ) {
-
-        return [
-            Number(point.lat),
-            Number(point.lon)
-        ];
-    }
-
-    if (
-        Array.isArray(point) &&
-        point.length >= 2
-    ) {
-
-        const first =
-            Number(point[0]);
-
-        const second =
-            Number(point[1]);
-
-        if (
-            Number.isFinite(first) &&
-            Number.isFinite(second)
-        ) {
-
-            if (Math.abs(first) <= 90) {
-                return [first, second];
-            }
-
-            return [second, first];
-        }
-    }
-
-    return null;
-}
-
-
-/* =========================================================
-   API DATA NORMALISEREN
-   ========================================================= */
-
-function normalizePlace(record) {
-
-    const fields =
-        record.fields || record;
-
-    return {
-
-        id: String(
-            getField(
-                fields,
-                "id",
-                "recordid"
-            ) ||
-            crypto.randomUUID()
-        ),
-
-        nameNL: cleanText(
-            getField(
-                fields,
-                "translations_nl_name"
-            )
-        ),
-
-        nameFR: cleanText(
-            getField(
-                fields,
-                "translations_fr_name"
-            )
-        ),
-
-        nameEN: cleanText(
-            getField(
-                fields,
-                "translations_en_name"
-            )
-        ),
-
-        categoryNL: cleanText(
-            getField(
-                fields,
-                "visit_category_nl_multi"
-            )
-        ),
-
-        categoryFR: cleanText(
-            getField(
-                fields,
-                "visit_category_fr_multi"
-            )
-        ),
-
-        categoryEN: cleanText(
-            getField(
-                fields,
-                "visit_category_en_multi"
-            )
-        ),
-
-        addressNL: cleanText(
-            getField(
-                fields,
-                "translations_nl_address_line1"
-            )
-        ),
-
-        addressFR: cleanText(
-            getField(
-                fields,
-                "translations_fr_address_line1"
-            )
-        ),
-
-        postal: cleanText(
-            getField(
-                fields,
-                "translations_fr_address_zip"
-            )
-        ),
-
-        municipalityNL: cleanText(
-            getField(
-                fields,
-                "add_municipality_nl"
-            )
-        ),
-
-        municipalityFR: cleanText(
-            getField(
-                fields,
-                "add_municipality_fr"
-            )
-        ),
-
-        phone: cleanText(
-            getField(
-                fields,
-                "translations_nl_phone_contact",
-                "translations_fr_phone_contact"
-            )
-        ),
-
-        website: cleanText(
-            getField(
-                fields,
-                "translations_nl_website",
-                "translations_fr_website"
-            )
-        ),
-
-        email: cleanText(
-            getField(
-                fields,
-                "translations_nl_email",
-                "translations_fr_email"
-            )
-        ),
-
-        accessibility: cleanText(
-            getField(
-                fields,
-                "accessibilities_translations_nl_item",
-                "accessibilities_translations_fr_item"
-            )
-        ),
-
-        updated:
-            getField(
-                fields,
-                "last_updated_at",
-                "published_at"
-            ),
-
-        coordinates:
-            parseCoordinates(
-                getField(
-                    fields,
-                    "add_geo_point_2"
-                )
-            )
-    };
-}
-
-
-/* =========================================================
-   TAAL DATA
-   ========================================================= */
-
-function getName(place) {
-
-    const language =
-        currentLanguage();
-
-    if (
-        language === "fr" &&
-        place.nameFR !== "-"
-    ) {
-        return place.nameFR;
-    }
-
-    if (
-        language === "en" &&
-        place.nameEN !== "-"
-    ) {
-        return place.nameEN;
-    }
-
-    if (place.nameNL !== "-") {
-        return place.nameNL;
-    }
-
-    if (place.nameFR !== "-") {
-        return place.nameFR;
-    }
-
-    return place.nameEN;
-}
-
-
-function getCategory(place) {
-
-    const language =
-        currentLanguage();
-
-    if (
-        language === "fr" &&
-        place.categoryFR !== "-"
-    ) {
-        return place.categoryFR;
-    }
-
-    if (
-        language === "en" &&
-        place.categoryEN !== "-"
-    ) {
-        return place.categoryEN;
-    }
-
-    if (place.categoryNL !== "-") {
-        return place.categoryNL;
-    }
-
-    if (place.categoryFR !== "-") {
-        return place.categoryFR;
-    }
-
-    return place.categoryEN;
-}
-
-
-function getAddress(place) {
-
-    const language =
-        currentLanguage();
-
-    if (
-        language === "fr" &&
-        place.addressFR !== "-"
-    ) {
-        return place.addressFR;
-    }
-
-    if (place.addressNL !== "-") {
-        return place.addressNL;
-    }
-
-    return place.addressFR;
-}
-
-
-function getMunicipality(place) {
-
-    const language =
-        currentLanguage();
-
-    if (
-        language === "fr" &&
-        place.municipalityFR !== "-"
-    ) {
-        return place.municipalityFR;
-    }
-
-    if (place.municipalityNL !== "-") {
-        return place.municipalityNL;
-    }
-
-    return place.municipalityFR;
-}
-
-
-/* =========================================================
-   API OPHALEN
-   ========================================================= */
-
-async function fetchPlaces() {
-
-    console.log("BrusselsExplorer: API laden...");
-
-    const response =
-        await fetch(API_URL);
-
-    console.log(
-        "API status:",
-        response.status
-    );
-
-    if (!response.ok) {
-
-        throw new Error(
-            "API fout: " +
-            response.status
-        );
-    }
-
-    const data =
-        await response.json();
-
-    console.log(
-        "API response:",
-        data
-    );
-
-    if (
-        !data.results ||
-        !Array.isArray(data.results)
-    ) {
-
-        throw new Error(
-            "De API bevat geen results."
-        );
-    }
-
-    console.log(
-        "Aantal plaatsen:",
-        data.results.length
-    );
-
-    return data.results
-        .map(normalizePlace)
-        .filter(place =>
-            place.id &&
-            getName(place) !== "-"
-        );
-}
-
-
-/* =========================================================
+/* =========================
    FILTERS VULLEN
-   ========================================================= */
+========================= */
 
-function fillFilterOptions() {
+function populateFilters() {
 
-    if (
-        !categoryFilter ||
-        !locationFilter
-    ) {
-        return;
-    }
+    const categorySelect =
+        $("category-filter");
 
-    const selectedCategory =
-        categoryFilter.value;
+    const locationSelect =
+        $("location-filter");
 
-    const selectedLocation =
-        locationFilter.value;
+
+    const oldCategory =
+        categorySelect.value;
+
+    const oldLocation =
+        locationSelect.value;
 
 
     const categories = [
         ...new Set(
             places
-                .map(place =>
-                    getCategory(place)
-                )
-                .filter(
-                    value =>
-                        value &&
-                        value !== "-"
-                )
+                .map(place => place.category)
+                .filter(Boolean)
         )
     ].sort(
         (a, b) =>
@@ -1165,14 +848,8 @@ function fillFilterOptions() {
     const locations = [
         ...new Set(
             places
-                .map(place =>
-                    getMunicipality(place)
-                )
-                .filter(
-                    value =>
-                        value &&
-                        value !== "-"
-                )
+                .map(place => place.location)
+                .filter(Boolean)
         )
     ].sort(
         (a, b) =>
@@ -1180,619 +857,483 @@ function fillFilterOptions() {
     );
 
 
-    categoryFilter.innerHTML =
+    categorySelect.innerHTML =
         `<option value="">
-            ${escapeHtml(t("allTypes"))}
-        </option>` +
-        categories
-            .map(
-                category =>
-                    `<option value="${escapeHtml(category)}">
-                        ${escapeHtml(category)}
-                    </option>`
-            )
-            .join("");
+            ${escapeHtml(
+                translations[currentLanguage]
+                    .allTypes
+            )}
+        </option>`;
 
 
-    locationFilter.innerHTML =
+    locationSelect.innerHTML =
         `<option value="">
-            ${escapeHtml(t("allLocations"))}
-        </option>` +
-        locations
-            .map(
-                location =>
-                    `<option value="${escapeHtml(location)}">
-                        ${escapeHtml(location)}
-                    </option>`
-            )
-            .join("");
+            ${escapeHtml(
+                translations[currentLanguage]
+                    .allLocations
+            )}
+        </option>`;
+
+
+    categories.forEach(category => {
+
+        categorySelect.insertAdjacentHTML(
+            "beforeend",
+
+            `<option value="${escapeHtml(category)}">
+                ${escapeHtml(category)}
+            </option>`
+        );
+    });
+
+
+    locations.forEach(location => {
+
+        locationSelect.insertAdjacentHTML(
+            "beforeend",
+
+            `<option value="${escapeHtml(location)}">
+                ${escapeHtml(location)}
+            </option>`
+        );
+    });
 
 
     if (
-        categories.includes(
-            selectedCategory
-        )
+        [...categorySelect.options]
+            .some(option =>
+                option.value === oldCategory
+            )
     ) {
-        categoryFilter.value =
-            selectedCategory;
+
+        categorySelect.value =
+            oldCategory;
     }
 
 
     if (
-        locations.includes(
-            selectedLocation
-        )
+        [...locationSelect.options]
+            .some(option =>
+                option.value === oldLocation
+            )
     ) {
-        locationFilter.value =
-            selectedLocation;
+
+        locationSelect.value =
+            oldLocation;
     }
 }
 
 
-/* =========================================================
-   FILTERS TOEPASSEN
-   ========================================================= */
+/* =========================
+   FILTEREN
+========================= */
 
-function applyFilters() {
+function getFilteredPlaces() {
 
-    if (!places.length) {
-        return;
-    }
+    const query =
+        $("search-input")
+            .value
+            .trim()
+            .toLowerCase();
 
-    const search =
-        searchInput
-            ? searchInput.value
-                .trim()
-                .toLowerCase()
-            : "";
 
     const category =
-        categoryFilter
-            ? categoryFilter.value
-            : "";
+        $("category-filter").value;
+
 
     const location =
-        locationFilter
-            ? locationFilter.value
-            : "";
+        $("location-filter").value;
+
 
     const sort =
-        sortSelect
-            ? sortSelect.value
-            : "name-asc";
+        $("sort-select").value;
 
 
-    filteredPlaces =
+    let result =
         places.filter(place => {
 
-            const searchableText = `
-                ${getName(place)}
-                ${getCategory(place)}
-                ${getAddress(place)}
-                ${getMunicipality(place)}
-            `.toLowerCase();
+            const searchable = [
 
+                place.nameNl,
+                place.nameFr,
+                place.nameEn,
 
-            const matchesSearch =
-                search === "" ||
-                searchableText.includes(
-                    search
-                );
+                place.address,
 
+                place.location,
 
-            const matchesCategory =
-                category === "" ||
-                getCategory(place) ===
-                    category;
+                place.category
 
-
-            const matchesLocation =
-                location === "" ||
-                getMunicipality(place) ===
-                    location;
+            ]
+                .join(" ")
+                .toLowerCase();
 
 
             return (
-                matchesSearch &&
-                matchesCategory &&
-                matchesLocation
+
+                (!query ||
+                    searchable.includes(query))
+
+                &&
+
+                (!category ||
+                    place.category === category)
+
+                &&
+
+                (!location ||
+                    place.location === location)
             );
         });
 
 
-    if (sort === "name-asc") {
+    result.sort((a, b) => {
 
-        filteredPlaces.sort(
-            (a, b) =>
-                getName(a).localeCompare(
-                    getName(b)
-                )
-        );
-
-    } else if (
-        sort === "name-desc"
-    ) {
-
-        filteredPlaces.sort(
-            (a, b) =>
-                getName(b).localeCompare(
-                    getName(a)
-                )
-        );
-    }
+        const comparison =
+            getPlaceName(a).localeCompare(
+                getPlaceName(b),
+                currentLanguage
+            );
 
 
-    renderPlaces();
+        return sort === "name-desc"
+            ? -comparison
+            : comparison;
+    });
+
+
+    return result;
+}
+
+
+/* =========================
+   RENDER
+========================= */
+
+function render() {
+
+    filteredPlaces =
+        getFilteredPlaces();
+
+
+    $("result-count").textContent =
+        `${filteredPlaces.length}
+         ${translations[currentLanguage].results}`;
+
+
+    renderCards();
+
+    renderTable();
+
     updateMap();
 }
 
 
-/* =========================================================
-   PLACE CARD
-   ========================================================= */
+/* =========================
+   CARDS
+========================= */
 
-function createPlaceCard(place) {
+function renderCards() {
 
-    const isFavorite =
-        favorites.some(
-            favorite =>
-                favorite.id === place.id
-        );
-
-
-    let distanceText = "";
-
-
-    if (
-        userLocation &&
-        place.coordinates
-    ) {
-
-        const distance =
-            calculateDistance(
-                userLocation,
-                place.coordinates
-            );
-
-        distanceText =
-            `${distance.toFixed(1)} km`;
-    }
-
-
-    return `
-        <article class="place-card">
-
-            <div class="card-top">
-
-                <span class="category-pill">
-                    ${escapeHtml(
-                        getCategory(place)
-                    )}
-                </span>
-
-                <button
-                    class="favorite-button ${
-                        isFavorite
-                            ? "active"
-                            : ""
-                    }"
-                    type="button"
-                    data-favorite="${escapeHtml(
-                        place.id
-                    )}"
-                    aria-label="Favoriet"
-                >
-                    ${
-                        isFavorite
-                            ? "♥"
-                            : "♡"
-                    }
-                </button>
-
-            </div>
-
-
-            <h3>
-                ${escapeHtml(
-                    getName(place)
-                )}
-            </h3>
-
-
-            <p class="place-address">
-                ${escapeHtml(
-                    getAddress(place)
-                )}
-                ${
-                    getMunicipality(place) !== "-"
-                        ? " · " +
-                          escapeHtml(
-                              getMunicipality(place)
-                          )
-                        : ""
-                }
-            </p>
-
-
-            ${
-                place.phone !== "-"
-                    ? `
-                        <div class="place-meta">
-                            ${escapeHtml(
-                                place.phone
-                            )}
-                        </div>
-                    `
-                    : ""
-            }
-
-
-            <div class="card-bottom">
-
-                <span class="distance">
-                    ${escapeHtml(
-                        distanceText
-                    )}
-                </span>
-
-                <button
-                    class="details-button"
-                    type="button"
-                    data-details="${escapeHtml(
-                        place.id
-                    )}"
-                >
-                    ${t("details")}
-                </button>
-
-            </div>
-
-        </article>
-    `;
-}
-
-
-/* =========================================================
-   TABEL
-   ========================================================= */
-
-function createTableRow(place) {
-
-    const isFavorite =
-        favorites.some(
-            favorite =>
-                favorite.id === place.id
-        );
-
-
-    let website = "-";
-
-
-    if (
-        place.website &&
-        place.website !== "-"
-    ) {
-
-        const url =
-            safeUrl(
-                place.website
-            );
-
-        if (url !== "#") {
-
-            website = `
-                <a
-                    href="${url}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                >
-                    Open ↗
-                </a>
-            `;
-        }
-    }
-
-
-    return `
-        <tr>
-
-            <td>
-                <strong>
-                    ${escapeHtml(
-                        getName(place)
-                    )}
-                </strong>
-            </td>
-
-            <td>
-                ${escapeHtml(
-                    getCategory(place)
-                )}
-            </td>
-
-            <td>
-                ${escapeHtml(
-                    getAddress(place)
-                )}
-            </td>
-
-            <td>
-                ${escapeHtml(
-                    place.postal
-                )}
-            </td>
-
-            <td>
-                ${escapeHtml(
-                    getMunicipality(place)
-                )}
-            </td>
-
-            <td>
-                ${escapeHtml(
-                    place.phone
-                )}
-            </td>
-
-            <td>
-                ${website}
-            </td>
-
-            <td>
-
-                <button
-                    class="table-favorite"
-                    data-favorite="${escapeHtml(
-                        place.id
-                    )}"
-                    type="button"
-                >
-                    ${
-                        isFavorite
-                            ? "♥"
-                            : "♡"
-                    }
-                </button>
-
-            </td>
-
-        </tr>
-    `;
-}
-
-
-/* =========================================================
-   PLAATSEN RENDEREN
-   ========================================================= */
-
-function renderPlaces() {
-
-    if (!placesContainer) {
-        return;
-    }
-
-
-    if (resultCount) {
-
-        resultCount.textContent =
-            `${filteredPlaces.length} ${
-                filteredPlaces.length === 1
-                    ? t("place")
-                    : t("places")
-            }`;
-    }
+    const container =
+        $("places-container");
 
 
     if (!filteredPlaces.length) {
 
-        placesContainer.innerHTML = `
+        container.innerHTML = `
+
             <div class="empty-state">
+
                 <div>♡</div>
 
                 <h3>
                     ${escapeHtml(
-                        t("noResults")
+                        translations[currentLanguage]
+                            .noResults
                     )}
                 </h3>
 
-                <p>
-                    Probeer een andere zoekterm
-                    of pas je filters aan.
-                </p>
             </div>
+
         `;
 
-        if (tableContainer) {
-            tableContainer.innerHTML = "";
-        }
+        return;
+    }
+
+
+    container.innerHTML =
+        filteredPlaces.map(place => {
+
+            const isFavorite =
+                favorites.includes(
+                    place.id
+                );
+
+
+            return `
+
+                <article class="place-card">
+
+                    <div class="place-card-top">
+
+                        <span class="place-category">
+                            ${escapeHtml(
+                                getPlaceCategory(place)
+                            )}
+                        </span>
+
+
+                        <button
+
+                            class="
+                                favorite-button
+                                ${isFavorite
+                                    ? "is-favorite"
+                                    : ""}
+                            "
+
+                            data-favorite="${escapeHtml(
+                                place.id
+                            )}"
+
+                            type="button"
+
+                            aria-label="Favoriet"
+
+                        >
+                            ${isFavorite
+                                ? "♥"
+                                : "♡"}
+                        </button>
+
+                    </div>
+
+
+                    <h3>
+                        ${escapeHtml(
+                            getPlaceName(place)
+                        )}
+                    </h3>
+
+
+                    <p class="place-address">
+
+                        ${escapeHtml(
+                            place.address
+                        )}
+
+                        ${
+                            place.postcode
+                                ? `, ${escapeHtml(
+                                    place.postcode
+                                )}`
+                                : ""
+                        }
+
+                    </p>
+
+
+                    <p class="place-location">
+
+                        📍
+
+                        ${escapeHtml(
+                            place.location
+                        )}
+
+                    </p>
+
+
+                    <div class="place-actions">
+
+                        ${
+                            place.googleMaps
+
+                                ?
+
+                            `<a
+                                class="button secondary-button"
+                                href="${escapeHtml(
+                                    place.googleMaps
+                                )}"
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                ${
+                                    translations[
+                                        currentLanguage
+                                    ].details
+                                }
+                            </a>`
+
+                                :
+
+                            ""
+                        }
+
+
+                        ${
+                            place.website
+
+                                ?
+
+                            `<a
+                                class="text-link"
+                                href="${escapeHtml(
+                                    place.website
+                                )}"
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                ${
+                                    translations[
+                                        currentLanguage
+                                    ].website
+                                }
+                            </a>`
+
+                                :
+
+                            ""
+                        }
+
+                    </div>
+
+                </article>
+
+            `;
+
+        }).join("");
+}
+
+
+/* =========================
+   TABEL
+========================= */
+
+function renderTable() {
+
+    const container =
+        $("table-container");
+
+
+    if (currentView !== "table") {
+
+        container.innerHTML = "";
+
+        container.style.display =
+            "none";
+
+        $("places-container")
+            .style.display = "grid";
 
         return;
     }
 
 
-    placesContainer.innerHTML =
-        filteredPlaces
-            .map(createPlaceCard)
-            .join("");
+    $("places-container")
+        .style.display = "none";
 
 
-    if (tableContainer) {
+    container.style.display =
+        "block";
 
-        tableContainer.innerHTML = `
-            <div class="table-scroll">
-                <table>
 
-                    <thead>
-                        <tr>
-                            <th>Naam</th>
-                            <th>Type</th>
-                            <th>Adres</th>
-                            <th>Postcode</th>
-                            <th>Gemeente</th>
-                            <th>Telefoon</th>
-                            <th>Website</th>
-                            <th>♡</th>
-                        </tr>
-                    </thead>
+    container.innerHTML = `
 
-                    <tbody>
-                        ${filteredPlaces
-                            .map(
-                                createTableRow
-                            )
-                            .join("")}
-                    </tbody>
+        <div class="table-scroll">
 
-                </table>
-            </div>
-        `;
-    }
+            <table>
+
+                <thead>
+
+                    <tr>
+
+                        <th>Naam</th>
+
+                        <th>
+                            ${translations[
+                                currentLanguage
+                            ].type}
+                        </th>
+
+                        <th>
+                            ${translations[
+                                currentLanguage
+                            ].location}
+                        </th>
+
+                        <th>
+                            ${translations[
+                                currentLanguage
+                            ].address}
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody>
+
+                    ${
+                        filteredPlaces
+                            .map(place => `
+
+                                <tr>
+
+                                    <td>
+                                        ${escapeHtml(
+                                            getPlaceName(
+                                                place
+                                            )
+                                        )}
+                                    </td>
+
+                                    <td>
+                                        ${escapeHtml(
+                                            getPlaceCategory(
+                                                place
+                                            )
+                                        )}
+                                    </td>
+
+                                    <td>
+                                        ${escapeHtml(
+                                            place.location
+                                        )}
+                                    </td>
+
+                                    <td>
+                                        ${escapeHtml(
+                                            place.address
+                                        )}
+                                    </td>
+
+                                </tr>
+
+                            `)
+                            .join("")
+                    }
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    `;
 }
 
 
-/* =========================================================
-   FAVORIETEN
-   ========================================================= */
-
-function renderFavorites() {
-
-    const count =
-        document.getElementById(
-            "favorite-count"
-        );
-
-    if (count) {
-        count.textContent =
-            favorites.length;
-    }
-
-
-    if (!favoritesContainer) {
-        return;
-    }
-
-
-    if (!favorites.length) {
-
-        favoritesContainer.innerHTML =
-            "";
-
-        if (favoritesEmpty) {
-            favoritesEmpty.classList.remove(
-                "hidden"
-            );
-        }
-
-        return;
-    }
-
-
-    if (favoritesEmpty) {
-        favoritesEmpty.classList.add(
-            "hidden"
-        );
-    }
-
-
-    favoritesContainer.innerHTML =
-        favorites
-            .map(createPlaceCard)
-            .join("");
-}
-
-
-function toggleFavorite(placeId) {
-
-    const place =
-        places.find(
-            item =>
-                item.id === placeId
-        );
-
-
-    if (!place) {
-        return;
-    }
-
-
-    const exists =
-        favorites.some(
-            favorite =>
-                favorite.id === placeId
-        );
-
-
-    if (exists) {
-
-        favorites =
-            favorites.filter(
-                favorite =>
-                    favorite.id !== placeId
-            );
-
-        showToast(
-            t("favoriteRemoved")
-        );
-
-    } else {
-
-        favorites = [
-            ...favorites,
-            place
-        ];
-
-        showToast(
-            t("favoriteAdded")
-        );
-    }
-
-
-    localStorage.setItem(
-        STORAGE.favorites,
-        JSON.stringify(
-            favorites
-        )
-    );
-
-
-    renderPlaces();
-    renderFavorites();
-}
-
-
-/* =========================================================
-   VEILIG URL
-   ========================================================= */
-
-function safeUrl(url) {
-
-    try {
-
-        const parsed =
-            new URL(url);
-
-        if (
-            parsed.protocol === "http:" ||
-            parsed.protocol === "https:"
-        ) {
-            return parsed.href;
-        }
-
-    } catch {
-        return "#";
-    }
-
-    return "#";
-}
-
-
-/* =========================================================
+/* =========================
    KAART
-   ========================================================= */
+========================= */
 
 function initMap() {
 
-    if (!window.L) {
+    if (typeof L === "undefined") {
 
         console.error(
             "Leaflet is niet geladen."
@@ -1802,44 +1343,28 @@ function initMap() {
     }
 
 
-    const mapElement =
-        document.getElementById("map");
-
-
-    if (!mapElement) {
-        return;
-    }
-
-
-    map =
-        L.map(
-            "map"
-        ).setView(
-            [50.8476, 4.3572],
-            12
+    map = L.map("map")
+        .setView(
+            [50.8466, 4.3528],
+            13
         );
 
 
     L.tileLayer(
         "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         {
+
+            maxZoom: 19,
+
             attribution:
                 "&copy; OpenStreetMap contributors"
+
         }
     ).addTo(map);
 
 
     markersLayer =
         L.layerGroup().addTo(map);
-
-
-    updateMap();
-
-
-    setTimeout(
-        () => map.invalidateSize(),
-        300
-    );
 }
 
 
@@ -1856,60 +1381,57 @@ function updateMap() {
     markersLayer.clearLayers();
 
 
+    const validPlaces =
+        filteredPlaces.filter(place =>
+
+            Number.isFinite(place.lat) &&
+
+            Number.isFinite(place.lon)
+        );
+
+
     const bounds = [];
 
 
-    filteredPlaces.forEach(
-        place => {
+    validPlaces.forEach(place => {
 
-            if (
-                !place.coordinates
-            ) {
-                return;
-            }
-
-
-            const marker =
-                L.marker(
-                    place.coordinates
-                );
-
-
-            marker.bindPopup(`
-                <div class="map-popup">
-
-                    <strong>
-                        ${escapeHtml(
-                            getName(place)
-                        )}
-                    </strong>
-
-                    <p>
-                        ${escapeHtml(
-                            getCategory(place)
-                        )}
-                    </p>
-
-                    <p>
-                        ${escapeHtml(
-                            getMunicipality(place)
-                        )}
-                    </p>
-
-                </div>
-            `);
-
-
-            marker.addTo(
+        const marker =
+            L.marker([
+                place.lat,
+                place.lon
+            ]).addTo(
                 markersLayer
             );
 
 
-            bounds.push(
-                place.coordinates
-            );
-        }
-    );
+        marker.bindPopup(`
+
+            <strong>
+                ${escapeHtml(
+                    getPlaceName(place)
+                )}
+            </strong>
+
+            <br>
+
+            ${escapeHtml(
+                place.address
+            )}
+
+            <br>
+
+            ${escapeHtml(
+                place.location
+            )}
+
+        `);
+
+
+        bounds.push([
+            place.lat,
+            place.lon
+        ]);
+    });
 
 
     if (bounds.length) {
@@ -1918,79 +1440,267 @@ function updateMap() {
             bounds,
             {
                 padding: [30, 30],
-                maxZoom: 14
+                maxZoom: 15
             }
         );
     }
 }
 
 
-/* =========================================================
-   LOCATIE
-   ========================================================= */
+/* =========================
+   FAVORIETEN
+========================= */
 
-function calculateDistance(
-    from,
-    to
-) {
+function toggleFavorite(id) {
 
-    const earthRadius =
-        6371;
+    if (
+        favorites.includes(id)
+    ) {
 
+        favorites =
+            favorites.filter(
+                favoriteId =>
+                    favoriteId !== id
+            );
 
-    const lat1 =
-        from[0] *
-        Math.PI /
-        180;
+    } else {
 
-
-    const lat2 =
-        to[0] *
-        Math.PI /
-        180;
+        favorites.push(id);
+    }
 
 
-    const deltaLat =
-        (to[0] - from[0]) *
-        Math.PI /
-        180;
+    localStorage.setItem(
+        "brusselsExplorerFavorites",
+        JSON.stringify(favorites)
+    );
 
 
-    const deltaLon =
-        (to[1] - from[1]) *
-        Math.PI /
-        180;
+    updateFavoriteCount();
+
+    renderFavorites();
+
+    renderCards();
+}
 
 
-    const a =
-        Math.sin(
-            deltaLat / 2
-        ) ** 2 +
+function updateFavoriteCount() {
 
-        Math.cos(lat1) *
-        Math.cos(lat2) *
-        Math.sin(
-            deltaLon / 2
-        ) ** 2;
+    const count =
+        $("favorite-count");
 
 
-    return (
-        earthRadius *
-        2 *
-        Math.atan2(
-            Math.sqrt(a),
-            Math.sqrt(1 - a)
-        )
+    if (count) {
+
+        count.textContent =
+            favorites.length;
+    }
+}
+
+
+function renderFavorites() {
+
+    const container =
+        $("favorites-container");
+
+
+    const empty =
+        $("favorites-empty");
+
+
+    const favoritePlaces =
+        places.filter(place =>
+            favorites.includes(
+                place.id
+            )
+        );
+
+
+    empty.style.display =
+        favoritePlaces.length
+            ? "none"
+            : "block";
+
+
+    container.innerHTML =
+        favoritePlaces.map(place => `
+
+            <article class="place-card">
+
+                <div class="place-card-top">
+
+                    <span class="place-category">
+                        ${escapeHtml(
+                            getPlaceCategory(place)
+                        )}
+                    </span>
+
+
+                    <button
+
+                        class="
+                            favorite-button
+                            is-favorite
+                        "
+
+                        data-favorite="${escapeHtml(
+                            place.id
+                        )}"
+
+                        type="button"
+
+                    >
+                        ♥
+                    </button>
+
+                </div>
+
+
+                <h3>
+                    ${escapeHtml(
+                        getPlaceName(place)
+                    )}
+                </h3>
+
+
+                <p class="place-address">
+                    ${escapeHtml(
+                        place.address
+                    )}
+                </p>
+
+
+                <p class="place-location">
+                    📍
+                    ${escapeHtml(
+                        place.location
+                    )}
+                </p>
+
+            </article>
+
+        `).join("");
+}
+
+
+/* =========================
+   THEMA
+========================= */
+
+function applyTheme(theme) {
+
+    document.body.classList.remove(
+        "theme-light",
+        "theme-pink",
+        "theme-dark"
+    );
+
+
+    document.body.classList.add(
+        `theme-${theme}`
+    );
+
+
+    $("theme-select").value =
+        theme;
+
+
+    localStorage.setItem(
+        "brusselsExplorerTheme",
+        theme
     );
 }
 
 
-function useMyLocation() {
+function cycleTheme() {
+
+    const current =
+        $("theme-select").value;
+
+
+    let next;
+
+
+    if (current === "light") {
+
+        next = "pink";
+
+    } else if (current === "pink") {
+
+        next = "dark";
+
+    } else {
+
+        next = "light";
+    }
+
+
+    applyTheme(next);
+}
+
+
+/* =========================
+   VOORKEUREN
+========================= */
+
+function savePreferences(event) {
+
+    event.preventDefault();
+
+
+    const theme =
+        $("theme-select").value;
+
+
+    const locationEnabled =
+        $("location-preference").checked;
+
+
+    applyTheme(theme);
+
+
+    localStorage.setItem(
+        "brusselsExplorerLocation",
+        String(locationEnabled)
+    );
+
+
+    const button =
+        document.querySelector(
+            "#preferences-form button"
+        );
+
+
+    const originalText =
+        translations[
+            currentLanguage
+        ].savePrefs;
+
+
+    button.textContent =
+        translations[
+            currentLanguage
+        ].saved;
+
+
+    setTimeout(() => {
+
+        button.textContent =
+            originalText;
+
+    }, 1800);
+}
+
+
+/* =========================
+   LOCATIE
+========================= */
+
+function useNearby() {
 
     if (!navigator.geolocation) {
 
-        showToast(
-            t("locationError")
+        alert(
+            "Je browser ondersteunt geen locatie."
         );
 
         return;
@@ -2001,513 +1711,252 @@ function useMyLocation() {
 
         position => {
 
-            userLocation = [
-                position.coords.latitude,
-                position.coords.longitude
-            ];
+            const userLat =
+                position.coords.latitude;
 
 
-            localStorage.setItem(
-                STORAGE.location,
-                JSON.stringify(
-                    userLocation
-                )
-            );
+            const userLon =
+                position.coords.longitude;
 
 
-            filteredPlaces.sort(
-                (a, b) => {
+            const nearby =
+                places
+                    .map(place => {
 
-                    const distanceA =
-                        a.coordinates
-                            ? calculateDistance(
-                                userLocation,
-                                a.coordinates
+                        if (
+                            !Number.isFinite(
+                                place.lat
+                            ) ||
+                            !Number.isFinite(
+                                place.lon
                             )
-                            : Infinity;
+                        ) {
+
+                            return {
+                                place,
+                                distance:
+                                    Infinity
+                            };
+                        }
 
 
-                    const distanceB =
-                        b.coordinates
-                            ? calculateDistance(
-                                userLocation,
-                                b.coordinates
-                            )
-                            : Infinity;
+                        const distance =
+                            Math.sqrt(
+
+                                Math.pow(
+                                    place.lat -
+                                        userLat,
+                                    2
+                                )
+
+                                +
+
+                                Math.pow(
+                                    place.lon -
+                                        userLon,
+                                    2
+                                )
+                            );
 
 
-                    return (
-                        distanceA -
-                        distanceB
-                    );
-                }
-            );
+                        return {
+                            place,
+                            distance
+                        };
+
+                    })
+                    .sort(
+                        (a, b) =>
+                            a.distance -
+                            b.distance
+                    )
+                    .slice(0, 20);
 
 
-            renderPlaces();
+            filteredPlaces =
+                nearby.map(
+                    item =>
+                        item.place
+                );
+
+
+            $("result-count")
+                .textContent =
+                `${filteredPlaces.length}
+                ${translations[
+                    currentLanguage
+                ].results}`;
+
+
+            renderCards();
+
+            renderTable();
+
             updateMap();
 
 
-            showToast(
-                t("locationSaved")
-            );
-        },
-
-
-        () => {
-
-            showToast(
-                t("locationError")
-            );
-        },
-
-
-        {
-            enableHighAccuracy: true,
-            timeout: 8000,
-            maximumAge: 60000
-        }
-    );
-}
-
-
-/* =========================================================
-   THEMA
-   ========================================================= */
-
-function applyTheme(theme) {
-
-    document.body.classList.remove(
-        "dark",
-        "pink"
-    );
-
-
-    if (
-        theme === "dark" ||
-        theme === "pink"
-    ) {
-
-        document.body.classList.add(
-            theme
-        );
-    }
-
-
-    localStorage.setItem(
-        STORAGE.theme,
-        theme
-    );
-
-
-    if (themeSelect) {
-        themeSelect.value =
-            theme;
-    }
-
-
-    if (themeButton) {
-
-        themeButton.textContent =
-            theme === "dark"
-                ? "☀"
-                : "☾";
-    }
-}
-
-
-function toggleTheme() {
-
-    const current =
-        localStorage.getItem(
-            STORAGE.theme
-        ) || "light";
-
-
-    const next =
-        current === "dark"
-            ? "light"
-            : "dark";
-
-
-    applyTheme(next);
-}
-
-
-function loadTheme() {
-
-    const saved =
-        localStorage.getItem(
-            STORAGE.theme
-        ) || "light";
-
-
-    applyTheme(saved);
-}
-
-
-/* =========================================================
-   VOORKEUREN
-   ========================================================= */
-
-function savePreferences(event) {
-
-    event.preventDefault();
-
-
-    const preferences = {
-
-        theme:
-            themeSelect
-                ? themeSelect.value
-                : "light",
-
-        location:
-            locationPreference
-                ? locationPreference.checked
-                : false
-    };
-
-
-    localStorage.setItem(
-        STORAGE.preferences,
-        JSON.stringify(
-            preferences
-        )
-    );
-
-
-    applyTheme(
-        preferences.theme
-    );
-
-
-    if (
-        preferences.location
-    ) {
-
-        useMyLocation();
-    }
-
-
-    showToast(
-        t("preferencesSaved")
-    );
-}
-
-
-function loadPreferences() {
-
-    let saved = null;
-
-
-    try {
-
-        saved =
-            JSON.parse(
-                localStorage.getItem(
-                    STORAGE.preferences
-                ) || "null"
-            );
-
-    } catch {
-        saved = null;
-    }
-
-
-    if (!saved) {
-        return;
-    }
-
-
-    if (
-        saved.theme &&
-        themeSelect
-    ) {
-
-        themeSelect.value =
-            saved.theme;
-
-        applyTheme(
-            saved.theme
-        );
-    }
-
-
-    if (
-        locationPreference &&
-        typeof saved.location ===
-            "boolean"
-    ) {
-
-        locationPreference.checked =
-            saved.location;
-    }
-}
-
-
-/* =========================================================
-   TOAST
-   ========================================================= */
-
-let toastTimer = null;
-
-
-function showToast(message) {
-
-    let toast =
-        document.getElementById(
-            "brussels-toast"
-        );
-
-
-    if (!toast) {
-
-        toast =
-            document.createElement(
-                "div"
-            );
-
-        toast.id =
-            "brussels-toast";
-
-        toast.style.position =
-            "fixed";
-
-        toast.style.bottom =
-            "25px";
-
-        toast.style.left =
-            "50%";
-
-        toast.style.transform =
-            "translateX(-50%)";
-
-        toast.style.padding =
-            "12px 20px";
-
-        toast.style.borderRadius =
-            "999px";
-
-        toast.style.background =
-            "#222";
-
-        toast.style.color =
-            "#fff";
-
-        toast.style.zIndex =
-            "9999";
-
-        toast.style.fontSize =
-            "14px";
-
-        toast.style.boxShadow =
-            "0 10px 30px rgba(0,0,0,.15)";
-
-        document.body.appendChild(
-            toast
-        );
-    }
-
-
-    toast.textContent =
-        message;
-
-
-    toast.style.opacity =
-        "1";
-
-
-    clearTimeout(
-        toastTimer
-    );
-
-
-    toastTimer =
-        setTimeout(
-            () => {
-
-                toast.style.opacity =
-                    "0";
-
-            },
-            2500
-        );
-}
-
-
-/* =========================================================
-   VIEW SWITCH
-   ========================================================= */
-
-function switchView(view) {
-
-    document
-        .querySelectorAll(
-            ".view-button"
-        )
-        .forEach(
-            button => {
-
-                button.classList.toggle(
-                    "active",
-                    button.dataset.view ===
-                        view
+            if (map) {
+
+                L.marker([
+                    userLat,
+                    userLon
+                ])
+                    .addTo(map)
+                    .bindPopup(
+                        "Je bent hier"
+                    )
+                    .openPopup();
+
+
+                map.setView(
+                    [
+                        userLat,
+                        userLon
+                    ],
+                    14
                 );
             }
-        );
+
+        },
 
 
-    if (placesContainer) {
-
-        placesContainer.classList.toggle(
-            "hidden",
-            view !== "cards"
-        );
-    }
-
-
-    if (tableContainer) {
-
-        tableContainer.classList.toggle(
-            "hidden",
-            view !== "table"
-        );
-    }
-}
-
-
-/* =========================================================
-   EVENTS
-   ========================================================= */
-
-if (searchInput) {
-
-    searchInput.addEventListener(
-        "input",
-        applyFilters
-    );
-}
-
-
-if (categoryFilter) {
-
-    categoryFilter.addEventListener(
-        "change",
-        applyFilters
-    );
-}
-
-
-if (locationFilter) {
-
-    locationFilter.addEventListener(
-        "change",
-        applyFilters
-    );
-}
-
-
-if (sortSelect) {
-
-    sortSelect.addEventListener(
-        "change",
-        applyFilters
-    );
-}
-
-
-if (resetFilters) {
-
-    resetFilters.addEventListener(
-        "click",
         () => {
 
-            if (searchInput) {
-                searchInput.value = "";
-            }
-
-            if (categoryFilter) {
-                categoryFilter.value = "";
-            }
-
-            if (locationFilter) {
-                locationFilter.value = "";
-            }
-
-            if (sortSelect) {
-                sortSelect.value =
-                    "name-asc";
-            }
-
-            applyFilters();
+            alert(
+                "Ik kon je locatie niet ophalen. Controleer de toestemming in je browser."
+            );
         }
     );
 }
 
 
-if (nearbyButton) {
+/* =========================
+   EVENTS
+========================= */
 
-    nearbyButton.addEventListener(
-        "click",
-        useMyLocation
-    );
-}
-
-
-if (themeButton) {
-
-    themeButton.addEventListener(
-        "click",
-        toggleTheme
-    );
-}
-
-
-if (languageSelect) {
-
-    languageSelect.addEventListener(
+$("language-select")
+    .addEventListener(
         "change",
         event => {
 
-            changeLanguage(
-                event.target.value
+            currentLanguage =
+                event.target.value;
+
+
+            localStorage.setItem(
+                "brusselsExplorerLanguage",
+                currentLanguage
             );
+
+
+            populateFilters();
+
+            applyLanguage();
         }
     );
-}
 
 
-if (preferencesForm) {
+$("theme-button")
+    .addEventListener(
+        "click",
+        cycleTheme
+    );
 
-    preferencesForm.addEventListener(
+
+$("preferences-form")
+    .addEventListener(
         "submit",
         savePreferences
     );
-}
 
 
-document
-    .querySelectorAll(
-        ".view-button"
-    )
-    .forEach(
-        button => {
+$("search-input")
+    .addEventListener(
+        "input",
+        render
+    );
 
-            button.addEventListener(
-                "click",
-                () =>
-                    switchView(
-                        button.dataset.view
-                    )
-            );
+
+$("category-filter")
+    .addEventListener(
+        "change",
+        render
+    );
+
+
+$("location-filter")
+    .addEventListener(
+        "change",
+        render
+    );
+
+
+$("sort-select")
+    .addEventListener(
+        "change",
+        render
+    );
+
+
+$("reset-filters")
+    .addEventListener(
+        "click",
+        () => {
+
+            $("search-input").value = "";
+
+            $("category-filter").value = "";
+
+            $("location-filter").value = "";
+
+            $("sort-select").value =
+                "name-asc";
+
+            render();
         }
     );
 
 
-/* =========================================================
-   FAVORIETEN + DETAILS
-   ========================================================= */
+$("nearby-button")
+    .addEventListener(
+        "click",
+        useNearby
+    );
+
+
+document
+    .querySelectorAll(".view-button")
+    .forEach(button => {
+
+        button.addEventListener(
+            "click",
+            () => {
+
+                document
+                    .querySelectorAll(
+                        ".view-button"
+                    )
+                    .forEach(btn =>
+                        btn.classList.remove(
+                            "active"
+                        )
+                    );
+
+
+                button.classList.add(
+                    "active"
+                );
+
+
+                currentView =
+                    button.dataset.view;
+
+
+                renderTable();
+            }
+        );
+    });
+
 
 document.addEventListener(
     "click",
@@ -2524,107 +1973,46 @@ document.addEventListener(
             toggleFavorite(
                 favoriteButton.dataset.favorite
             );
-
-            return;
-        }
-
-
-        const detailsButton =
-            event.target.closest(
-                "[data-details]"
-            );
-
-
-        if (detailsButton) {
-
-            const place =
-                places.find(
-                    item =>
-                        item.id ===
-                        detailsButton.dataset.details
-                );
-
-
-            if (!place) {
-                return;
-            }
-
-
-            const website =
-                place.website !== "-"
-                    ? safeUrl(
-                        place.website
-                    )
-                    : "#";
-
-
-            const message = `
-
-                ${getName(place)}
-
-                ${getCategory(place)}
-
-                ${getAddress(place)}
-                ${getMunicipality(place)}
-
-                ${
-                    place.phone !== "-"
-                        ? place.phone
-                        : ""
-                }
-
-                ${
-                    website !== "#"
-                        ? "\nWebsite: " +
-                          website
-                        : ""
-                }
-
-            `;
-
-
-            alert(
-                message
-            );
         }
     }
 );
 
 
-/* =========================================================
-   APP STARTEN
-   ========================================================= */
+/* =========================
+   START
+========================= */
 
-async function startApp() {
+async function init() {
 
-    console.log(
-        "BrusselsExplorer starten..."
-    );
-
-
-    loadTheme();
-    loadPreferences();
+    $("loading").style.display =
+        "block";
 
 
-    const savedLanguage =
+    $("error-message").textContent =
+        "";
+
+
+    const savedTheme =
         localStorage.getItem(
-            STORAGE.language
-        ) || "nl";
+            "brusselsExplorerTheme"
+        ) || "light";
 
 
-    if (languageSelect) {
-
-        languageSelect.value =
-            savedLanguage;
-    }
-
-
-    document.documentElement.lang =
-        savedLanguage;
+    const savedLocation =
+        localStorage.getItem(
+            "brusselsExplorerLocation"
+        ) === "true";
 
 
-    updateInterfaceText();
-    renderFavorites();
+    applyTheme(savedTheme);
+
+
+    $("location-preference")
+        .checked =
+        savedLocation;
+
+
+    initMap();
 
 
     try {
@@ -2634,108 +2022,63 @@ async function startApp() {
 
 
         console.log(
-            "Plaatsen succesvol geladen:",
-            places.length
+            "✅ API werkt!",
+            places.length,
+            "plaatsen geladen."
         );
 
 
-        filteredPlaces =
-            [...places];
-
-
-        fillFilterOptions();
-
-
-        applyFilters();
-
-
-        initMap();
-
-
-        if (loading) {
-
-            loading.classList.add(
-                "done"
-            );
-        }
-
-
-        if (errorMessage) {
-
-            errorMessage.textContent =
-                "";
-
-            errorMessage.classList.remove(
-                "show"
-            );
-        }
-
-
-        console.log(
-            "BrusselsExplorer is klaar ♡"
+        console.table(
+            places.slice(0, 10)
         );
+
+
+        $("loading").style.display =
+            "none";
+
+
+        populateFilters();
+
+        applyLanguage();
+
+        renderFavorites();
+
+        updateFavoriteCount();
 
 
     } catch (error) {
 
         console.error(
-            "FOUT BIJ STARTEN:",
+            "❌ API FOUT:",
             error
         );
 
 
-        if (loading) {
-
-            loading.classList.add(
-                "done"
-            );
-        }
+        $("loading").style.display =
+            "none";
 
 
-        if (resultCount) {
+        $("error-message").innerHTML = `
 
-            resultCount.textContent =
-                "API fout";
-        }
+            <strong>
+                De plaatsen konden niet geladen worden.
+            </strong>
 
+            <br><br>
 
-        if (placesContainer) {
+            Controleer je internetverbinding
+            en vernieuw daarna de pagina.
 
-            placesContainer.innerHTML = `
-                <div class="empty-state">
-
-                    <div>♡</div>
-
-                    <h3>
-                        Oeps!
-                    </h3>
-
-                    <p>
-                        ${escapeHtml(
-                            t("apiError")
-                        )}
-                    </p>
-
-                </div>
-            `;
-        }
-
-
-        if (errorMessage) {
-
-            errorMessage.textContent =
-                t("apiError");
-
-            errorMessage.classList.add(
-                "show"
-            );
-        }
+        `;
     }
 }
 
 
-/* =========================================================
-   START
-   ========================================================= */
+/* Eerste taal toepassen */
 
-startApp();
+applyLanguage();
+
+
+/* Website starten */
+
+init();
