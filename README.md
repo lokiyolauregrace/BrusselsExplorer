@@ -193,7 +193,7 @@ BrusselsExplorer/
 
 ## 8. AI chatlog
 
-Ik heb ChatGPT gebruikt als hulpmiddel tijdens het project voor uitleg over JavaScript-concepten, ideeën voor de structuur en hulp bij debugging. De uiteindelijke code heb ik aangepast zodat ik de werking zelf kan uitleggen en zodat de code past bij wat we in Dynamic Web gezien hebben.
+Ik heb ChatGPT gebruikt als hulpmiddel tijdens het project voor uitleg over JavaScript-concepten, ideeën voor de structuur en hulp bij debugging. De uiteindelijke code heb ik aangepast zodat ik de werking zelf kan uitleggen en zodat de code past bij wat we in Dynamic Web gezien hebben.Ik heb ook ai gebruikt voor het design van mijn website om het wat user-friendly te maken.
 
 ## 9. Commits
 
