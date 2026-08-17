@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>BrusselsExplorer ♡</title>
+
+    <link rel="stylesheet" href="styles.css">
+
+    <!-- Leaflet kaart -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
+</head>
+
+<body>
+
+<header class="header">
+    <div class="header-inner">
+
+        <a href="#" class="logo">
+            <span>♡</span>
+            BrusselsExplorer
+        </a>
+
+        <nav class="navigation">
+            <a href="#places">Ontdekken</a>
+            <a href="#map-section">Kaart</a>
+
+            <a href="#favorites">
+                Favorieten
+                <span id="favorite-count">0</span>
+            </a>
+        </nav>
+
+        <div class="header-actions">
+
+            <select id="language-select" aria-label="Taal kiezen">
+                <option value="nl">NL</option>
+                <option value="fr">FR</option>
+                <option value="en">EN</option>
+            </select>
+
+            <button
+                id="theme-button"
+                class="small-button"
+                type="button"
+                aria-label="Thema veranderen">
+                ☼
+            </button>
+
+        </div>
+
+    </div>
+</header>
+
+
+<main>
+
+    <!-- INTRO -->
+
+    <section class="hero">
+
+        <div class="hero-content">
+
+            <p class="small-title">BRUSSEL • BELGIË</p>
+
+            <h1>
+                Ontdek leuke plekken
+                <span>in Brussel.</span>
+            </h1>
+
+            <p class="hero-copy">
+                Weet je niet wat je vandaag kan doen?
+                Zoek een leuke plek, bekijk waar ze ligt
+                en bewaar je favorieten.
+            </p>
+
+            <div class="hero-buttons">
+
+                <a
+                    href="#places"
+                    class="button primary-button">
+                    Ontdek plekken
+                </a>
+
+                <button
+                    id="nearby-button"
+                    class="button secondary-button"
+                    type="button">
+                    ◎ In mijn buurt
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <div class="hero-decoration">
+
+            <div class="pink-circle"></div>
+
+            <div class="hero-card">
+                <span>♡</span>
+
+                <p>
+                    jouw lijstje<br>
+                    met leuke plekken
+                </p>
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- PLEKKEN -->
+
+    <section
+        id="places"
+        class="section places-section">
+
+        <div class="section-heading">
+
+            <div>
+
+                <p class="small-title">
+                    ONTDEKKEN
+                </p>
+
+                <h2>
+                    Wat wil je vandaag ontdekken?
+                </h2>
+
+            </div>
+
+            <p
+                id="result-count"
+                class="result-count">
+            </p>
+
+        </div>
+
+
+        <!-- FILTERS -->
+
+        <div class="filters">
+
+            <div class="filter-item search-item">
+
+                <label for="search-input">
+                    Zoeken
+                </label>
+
+                <div class="input-wrapper">
+
+                    <span>⌕</span>
+
+                    <input
+                        type="search"
+                        id="search-input"
+                        placeholder="Typ bijvoorbeeld een naam..."
+                    >
+
+                </div>
+
+            </div>
+
+
+            <div class="filter-item">
+
+                <label for="category-filter">
+                    Type
+                </label>
+
+                <select id="category-filter">
+
+                    <option value="">
+                        Alle types
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <div class="filter-item">
+
+                <label for="location-filter">
+                    Locatie
+                </label>
+
+                <select id="location-filter">
+
+                    <option value="">
+                        Alle locaties
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <div class="filter-item">
+
+                <label for="sort-select">
+                    Sorteren
+                </label>
+
+                <select id="sort-select">
+
+                    <option value="name-asc">
+                        Naam A-Z
+                    </option>
+
+                    <option value="name-desc">
+                        Naam Z-A
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <button
+                id="reset-filters"
+                class="reset-button"
+                type="button">
+
+                Reset
+
+            </button>
+
+        </div>
+
+
+        <!-- WEERGAVE -->
+
+        <div class="view-bar">
+
+            <div class="view-buttons">
+
+                <button
+                    class="view-button active"
+                    data-view="cards"
+                    type="button">
+
+                    ▦ Kaarten
+
+                </button>
+
+                <button
+                    class="view-button"
+                    data-view="table"
+                    type="button">
+
+                    ☷ Tabel
+
+                </button>
+
+            </div>
+
+        </div>
+
+
+        <!-- LADEN -->
+
+        <div
+            id="loading"
+            class="loading">
+
+            <div class="loading-heart">
+                ♡
+            </div>
+
+            <p>
+                Even geduld, de plekken worden geladen...
+            </p>
+
+        </div>
+
+
+        <!-- FOUTMELDING -->
+
+        <div
+            id="error-message"
+            class="error-message">
+        </div>
+
+
+        <!-- KAARTEN -->
+
+        <div
+            id="places-container"
+            class="places-grid">
+        </div>
+
+
+        <!-- TABEL -->
+
+        <div
+            id="table-container"
+            class="table-container">
+        </div>
+
+    </section>
+
+
+    <!-- KAART -->
+
+    <section
+        id="map-section"
+        class="section map-section">
+
+        <div class="section-heading">
+
+            <div>
+
+                <p class="small-title">
+                    KAART
+                </p>
+
+                <h2>
+                    Bekijk de plekken op de kaart
+                </h2>
+
+            </div>
+
+            <p class="map-tip">
+                Klik op een marker om meer informatie te bekijken.
+            </p>
+
+        </div>
+
+
+        <div
+            id="map"
+            class="map">
+        </div>
+
+    </section>
+
+
+    <!-- FAVORIETEN -->
+
+    <section
+        id="favorites"
+        class="section favorites-section">
+
+        <div class="section-heading">
+
+            <div>
+
+                <p class="small-title">
+                    FAVORIETEN
+                </p>
+
+                <h2>
+                    Mijn opgeslagen plekken ♡
+                </h2>
+
+            </div>
+
+        </div>
+
+
+        <div
+            id="favorites-empty"
+            class="empty-favorites">
+
+            <div class="empty-heart">
+                ♡
+            </div>
+
+            <h3>
+                Je hebt nog geen favorieten.
+            </h3>
+
+            <p>
+                Klik op het hartje bij een plek
+                om die hier te bewaren.
+            </p>
+
+            <a
+                href="#places"
+                class="button secondary-button">
+
+                Naar de plekken
+
+            </a>
+
+        </div>
+
+
+        <div
+            id="favorites-container"
+            class="places-grid">
+        </div>
+
+    </section>
+
+
+    <!-- VOORKEUREN -->
+
+    <section
+        class="section preferences-section">
+
+        <div class="preferences-box">
+
+            <div>
+
+                <p class="small-title">
+                    VOORKEUREN
+                </p>
+
+                <h2>
+                    Stel de website in zoals jij hem wil.
+                </h2>
+
+                <p>
+                    Je voorkeuren worden in je browser
+                    bewaard zodat ze niet telkens opnieuw
+                    ingesteld moeten worden.
+                </p>
+
+            </div>
+
+
+            <form id="preferences-form">
+
+                <div class="preference-row">
+
+                    <label for="theme-select">
+                        Thema
+                    </label>
+
+                    <select id="theme-select">
+
+                        <option value="light">
+                            Licht
+                        </option>
+
+                        <option value="pink">
+                            Roze
+                        </option>
+
+                        <option value="dark">
+                            Donker
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <div class="preference-row">
+
+                    <label for="location-preference">
+                        Locatie gebruiken
+                    </label>
+
+                    <input
+                        type="checkbox"
+                        id="location-preference"
+                    >
+
+                </div>
+
+
+                <button
+                    type="submit"
+                    class="button primary-button">
+
+                    Voorkeuren bewaren ♡
+
+                </button>
+
+            </form>
+
+        </div>
+
+    </section>
+
+</main>
+
+
+<footer class="footer">
+
+    <div>
+
+        <strong>
+            BrusselsExplorer ♡
+        </strong>
+
+        <p>
+            Mijn Dynamic Web project over Brussel.
+        </p>
+
+    </div>
+
+    <p>
+        EHB • Dynamic Web • 2026
+    </p>
+
+</footer>
+
+
+<!-- Leaflet -->
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<!-- Eigen JavaScript -->
+<script src="script.js"></script>
+
+</body>
+</html>
